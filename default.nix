@@ -5,7 +5,11 @@ let
   inherit (nix-meta.lib) get parse remove render;
   inherit (srctree.lib) alg toAttrs;
 
+  mapOption = f: tree:
+    if tree == null then null else f tree;
+
   withMeta = pkgs: tree:
+    assert tree != null;
     let
       paths = map (n: n.path) (alg.leaves tree);
       pathsCount = length paths;
@@ -61,12 +65,11 @@ srctree.lib // {
   inherit withMeta;
 
   load = pkgs: src:
-    withMeta pkgs (srctree.lib.load src);
+    mapOption (withMeta pkgs) (srctree.lib.load src);
 
-  loadHaumea = pkgs: src:
+  loadHaumea = pkgs: args:
     let
-      tree = withMeta pkgs (srctree.lib.loadHaumea src).tree;
-      attrs = toAttrs tree;
+      tree = mapOption (withMeta pkgs) (srctree.lib.loadHaumea args).tree;
     in
-    { inherit tree attrs; };
+    { inherit tree; attrs = mapOption toAttrs tree; };
 }
