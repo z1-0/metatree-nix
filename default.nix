@@ -54,12 +54,34 @@ let
       metasEvaluated = if metaASTList == [] then [] else get pkgs (map (x: x.ast) metaASTList);
       renderedPaths  = if metaASTList == [] then [] else render pkgs (map (x: x.removed) metaASTList);
 
-      # 4. Build rewrite mappings keyed by leaf index (leaves[i] ↔ the metaASTList entry with the same i).
+      # 4. Directory-preserving copy. Rendered files are written back at their
+      #    original relative paths so that relative imports (e.g. `import ./helper.nix`)
+      #    resolve against the source tree instead of the flat render directory.
+      #    The tree root path is the source directory and every leaf path is
+      #    `src + "/" + <relative path>` (srctree guarantees this shape).
+      src     = tree.path;
+      relPath = leaf:
+        let
+          s = toString src;
+          p = toString leaf.path;
+        in
+        assert builtins.substring 0 (builtins.stringLength s + 1) p == s + "/";
+        builtins.substring (builtins.stringLength s) (builtins.stringLength p - builtins.stringLength s) p;
+      # Follow symlinks (`-L`) so rendered files overwrite real files, not the
+      # tree the symlink points at. srctree admits symlink nodes (dir + file).
+      srcCopy = if metaASTList == [] then null else pkgs.runCommand "metatree-src" { } ''
+        cp -Lr "${src}/." $out/
+        chmod -R u+w $out/
+        ${builtins.concatStringsSep "\n" (imap0 (idx: item:
+          "cp -f \"${elemAt renderedPaths idx}\" \"$out${relPath (elemAt leaves item.i)}\"") metaASTList)}
+      '';
+
+      # 5. Build rewrite mappings keyed by leaf index (leaves[i] ↔ the metaASTList entry with the same i).
       byIdx = listToAttrs (imap0 (idx: item:
         {
           name = toString item.i;
           value = {
-            content = import (elemAt renderedPaths idx);
+            content = import "${srcCopy}${relPath (elemAt leaves item.i)}";
             meta = elemAt metasEvaluated idx;
           };
         }
