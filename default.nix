@@ -1,7 +1,7 @@
 { nix-meta, srctree, ... }:
 
 let
-  inherit (builtins) elemAt filter foldl' genList length listToAttrs map toString;
+  inherit (builtins) concatStringsSep elemAt filter foldl' genList length listToAttrs map stringLength substring toString;
   inherit (nix-meta.lib) get parse remove render;
   inherit (srctree.lib) alg toAttrs;
 
@@ -65,15 +65,17 @@ let
           s = toString src;
           p = toString leaf.path;
         in
-        assert builtins.substring 0 (builtins.stringLength s + 1) p == s + "/";
-        builtins.substring (builtins.stringLength s) (builtins.stringLength p - builtins.stringLength s) p;
+        assert substring 0 (stringLength s + 1) p == s + "/";
+        substring (stringLength s) (stringLength p - stringLength s) p;
+      # Aligned with metaASTList: each entry's relative path, computed once.
+      relPaths = map (item: relPath (elemAt leaves item.i)) metaASTList;
       # Follow symlinks (`-L`) so rendered files overwrite real files, not the
       # tree the symlink points at. srctree admits symlink nodes (dir + file).
       srcCopy = if metaASTList == [] then null else pkgs.runCommand "metatree-src" { } ''
         cp -Lr "${src}/." $out/
         chmod -R u+w $out/
-        ${builtins.concatStringsSep "\n" (imap0 (idx: item:
-          "cp -f \"${elemAt renderedPaths idx}\" \"$out${relPath (elemAt leaves item.i)}\"") metaASTList)}
+        ${concatStringsSep "\n" (imap0 (idx: _:
+          "cp -f \"${elemAt renderedPaths idx}\" \"$out${elemAt relPaths idx}\"") metaASTList)}
       '';
 
       # 5. Build rewrite mappings keyed by leaf index (leaves[i] ↔ the metaASTList entry with the same i).
@@ -81,13 +83,22 @@ let
         {
           name = toString item.i;
           value = {
-            content = import "${srcCopy}${relPath (elemAt leaves item.i)}";
+            content = import "${srcCopy}${elemAt relPaths idx}";
             meta = elemAt metasEvaluated idx;
           };
         }
       ) metaASTList);
     in
-    zipMeta (n: byIdx.${toString n} or null) leaves tree;
+    # Every leaf imports from srcCopy so that relative imports inside a module
+    # resolve against the copy, where _meta files are the stripped renders.
+    # Without this, a `_meta`-free module importing a `_meta` module gets the
+    # original (unstripped) file and leaks `_meta` into its evaluated value.
+    zipMeta (n:
+      let entry = byIdx.${toString n} or null; in
+      if srcCopy == null then null
+      else if entry != null then entry
+      else { content = import "${srcCopy}${relPath (elemAt leaves n)}"; }
+    ) leaves tree;
 in
 
 srctree.lib // {
