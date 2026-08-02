@@ -2,17 +2,17 @@
 
 Add AST-extracted metadata from `.nix` module files to a [srctree](https://github.com/z1-0/srctree-nix) filesystem tree using [nix-meta](https://github.com/z1-0/nix-meta).
 
-Embed metadata (descriptions, author info, version numbers) in your Nix modules without affecting the evaluated configuration. `_meta` is stripped before the module reaches evaluation.
+Embed metadata (descriptions, author info, version numbers) in your Nix modules without affecting the evaluated configuration. metatree-nix strips `_meta` before evaluation.
 
 ## How it works
 
-1. **Parse** — `nix-meta` parses `.nix` files at the AST level and extracts the top-level `_meta` attribute set.
-2. **Strip** — `_meta` is removed from each AST, then the modified AST is rendered to temporary files.
-3. **Load** — `srctree` evaluates the stripped files.
-4. **Enrich** — The evaluated content and extracted metadata are merged into the final metatree.
+1. `nix-meta` parses `.nix` files at the AST level and extracts the top-level `_meta` attribute set.
+2. `nix-meta` removes `_meta` from each AST and renders the modified AST to temporary files.
+3. `srctree` evaluates the stripped files.
+4. metatree-nix merges the evaluated content and the extracted metadata into the final tree.
 
 > [!NOTE]
-> Because `_meta` is stripped before evaluation, the evaluated modules never see the `_meta` attribute. This prevents type errors or warnings in strict modules.
+> Because stripping happens before evaluation, modules never see `_meta`. Strict modules then evaluate without type errors or warnings.
 
 ## Installation
 
@@ -61,8 +61,8 @@ in
 
 ### 3. Tree vs attributes
 
-- **`load`** — Returns enriched tree structure directly.
-- **`loadHaumea`** — Returns `{ tree, attrs }` for haumea-style access.
+- `load` returns the enriched tree structure directly.
+- `loadHaumea` returns `{ tree, attrs }` for haumea-style access.
 
 #### File node
 
@@ -97,8 +97,8 @@ load :: pkgs -> src -> tree
 
 Load a directory with `srctree`, extract `_meta` from Nix files, strip it, evaluate, and return the enriched tree.
 
-- `pkgs` — Package set for running parser/renderer utilities.
-- `src` — Source directory to load.
+- `pkgs`: package set for running the parser/renderer utilities.
+- `src`: source directory to load.
 
 ### loadHaumea
 
@@ -106,10 +106,10 @@ Load a directory with `srctree`, extract `_meta` from Nix files, strip it, evalu
 loadHaumea :: pkgs -> args -> { tree, attrs }
 ```
 
-Load with haumea-style return, providing both tree and clean attrs.
+Load with a haumea-style return, giving you the tree and clean attrs.
 
-- `pkgs` — Package set for running parser/renderer utilities.
-- `args` — Arguments forwarded to `srctree.lib.loadHaumea`.
+- `pkgs`: package set for running the parser/renderer utilities.
+- `args`: arguments forwarded to `srctree.lib.loadHaumea`.
 
 ### withMeta
 
@@ -119,5 +119,5 @@ withMeta :: pkgs -> tree -> tree
 
 Enrich an already loaded `srctree` tree with AST-extracted `_meta` attributes.
 
-- `pkgs` — Package set for running parser/renderer utilities.
-- `tree` — A srctree tree structure to enrich.
+- `pkgs`: package set for running the parser/renderer utilities.
+- `tree`: srctree tree structure to enrich.
