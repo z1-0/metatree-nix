@@ -5,11 +5,9 @@ let
   inherit (nix-meta.lib) get parse remove render;
   inherit (srctree.lib) alg toAttrs;
 
-  mapOption = f: tree:
-    if tree == null then null else f tree;
+  mapOption = f: tree: if tree == null then null else f tree;
 
-  # Leaves whose AST carries a `_meta` (`remove` catches `_meta = null;`
-  # that `get` misses), each bound to its leaf and stripped AST.
+  # `remove` catches `_meta = null;` that `get` misses.
   metaLeaves = pkgs: tree:
     let
       leaves = alg.leaves tree;
@@ -19,14 +17,13 @@ let
       let
         removed = remove ast;
       in
-      if removed != ast then { leaf = elemAt leaves i; inherit ast removed; } else null
+      if removed != ast then { path = (elemAt leaves i).path; inherit ast removed; } else null
     ) asts);
 
-  # Apply f only when the list is non-empty (parse/render error on []).
+  # parse/render error on [].
   ifNonEmpty = f: xs: if xs == [] then [] else f xs;
 
-  # Directory-preserving rewrite of the source tree: rendered (stripped)
-  # files written back at their original relative paths (`-L` follows symlinks).
+  # `-L` follows symlinks.
   rewriteSrc = pkgs: src: pairs:
     pkgs.runCommand "metatree-rewrite-src" { } ''
       cp -Lr "${src}/." $out/
@@ -34,55 +31,54 @@ let
       ${concatStringsSep "\n" (map (p: "cp -f \"${p.newFile}\" \"$out${p.rel}\"") pairs)}
     '';
 
+  # `==` ignores string context (which Nix forbids in attrset keys).
+  findMeta = path: metas: foldl' (acc: m: if m.path == path then m else acc) { } metas;
+
   withMeta = pkgs: tree:
     assert tree != null;
     let
-      # IFD boundary: all derivation-driven work happens here; the rest of
-      # `withMeta` stays a pure rewrite over the produced artifacts.
-      items = metaLeaves pkgs tree;
+      # IFD boundary: all derivation-driven work happens here; the rest is
+      # a pure rewrite over the produced artifacts.
+      leaves = metaLeaves pkgs tree;
 
-      # Index-aligned results of the batch get/render calls.
       metas = pkgs.lib.imap0 (idx: m: {
-        path = (elemAt items idx).leaf.path;
+        path = (elemAt leaves idx).path;
         meta = m;
-      }) (ifNonEmpty (get pkgs) (map (x: x.ast) items));
+      }) (ifNonEmpty (get pkgs) (map (x: x.ast) leaves));
 
-      newFiles = ifNonEmpty (render pkgs) (map (x: x.removed) items);
+      newFiles = ifNonEmpty (render pkgs) (map (x: x.removed) leaves);
 
-      # Every leaf path is `src + "/" + <relative path>` (srctree guarantees this).
       src = tree.path;
 
-      relPath = leaf:
+      # srctree guarantees every leaf path is `src + "/" + <relative path>`.
+      relPath = path:
         let
           s = toString src;
-          p = toString leaf.path;
+          p = toString path;
         in
         assert substring 0 (stringLength s + 1) p == s + "/";
         substring (stringLength s) (stringLength p - stringLength s) p;
-      
-      newSrc = if items == [] then null else rewriteSrc pkgs src
+
+      newSrc = if leaves == [] then null else rewriteSrc pkgs src
         (pkgs.lib.imap0 (idx: m: {
           newFile = elemAt newFiles idx;
-          rel = relPath m.leaf;
-        }) items);
+          rel = relPath (elemAt leaves idx).path;
+        }) leaves);
     in
-    # No `_meta` anywhere: keep the tree untouched (skips the copy).
+    # No `_meta` anywhere: keep the tree untouched.
     if metas == [] then tree
-    # All files import from newSrc so relative imports resolve against the
-    # stripped renders — otherwise `_meta` leaks through imports.
+    # All files import from newSrc: relative imports must resolve against the
+    # stripped files, or `_meta` leaks through.
     else alg.map (node:
       if node.type != "file" then node
-      else
-        node // { content = import "${newSrc}${relPath node}"; }
-           // (foldl' (acc: m: if m.path == node.path then m else acc) { } metas)
+      else node // { content = import "${newSrc}${relPath node.path}"; } // findMeta node.path metas
     ) tree;
 in
 
 srctree.lib // {
   inherit withMeta;
 
-  load = pkgs: src:
-    mapOption (withMeta pkgs) (srctree.lib.load src);
+  load = pkgs: src: mapOption (withMeta pkgs) (srctree.lib.load src);
 
   loadHaumea = pkgs: args:
     let
