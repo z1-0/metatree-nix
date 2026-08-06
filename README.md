@@ -62,7 +62,7 @@ in
 ### 3. Tree vs attributes
 
 - `load` returns the enriched tree structure directly.
-- `loadHaumea` returns `{ tree, attrs }` for haumea-style access.
+- Combine `load` with `toAttrs` (exposed from `srctree.lib`) for haumea-style attribute access.
 
 #### File node
 
@@ -84,8 +84,15 @@ in
 }
 ```
 
+```nix
+let
+  attrs = metatree.lib.toAttrs (metatree.lib.load pkgs ./src);
+in
+  attrs.services.web.meta.description
+```
+
 > [!TIP]
-> Use `loadHaumea` when you need both tree and attrs. Use `load` for direct tree access.
+> `toAttrs` gives haumea-style attribute access over the enriched tree. Use `load` for direct tree access.
 
 ## API
 
@@ -99,17 +106,6 @@ Load a directory with `srctree`, extract `_meta` from Nix files, strip it, evalu
 
 - `pkgs`: package set for running the parser/renderer utilities.
 - `src`: source directory to load.
-
-### loadHaumea
-
-```
-loadHaumea :: pkgs -> args -> { tree, attrs }
-```
-
-Load with a haumea-style return, giving you the tree and clean attrs.
-
-- `pkgs`: package set for running the parser/renderer utilities.
-- `args`: arguments forwarded to `srctree.lib.loadHaumea`.
 
 ### withMeta
 
