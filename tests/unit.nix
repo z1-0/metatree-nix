@@ -1,17 +1,15 @@
-# Unit tests for metatree-nix: individual `_meta` behaviours on minimal
-# fixture trees.
+# Unit tests for metatree-nix: one `_meta` behaviour per fixture, checked
+# through the real parse/render pipeline (IFD).
 #
-# These run through the real parse/render pipeline (IFD), but keep the trees
-# small and isolated so each assertion targets one behaviour:
-#   - `_meta` is extracted onto `meta` and stripped from `content`
-#   - files without `_meta` pass through with no `meta` attribute
-#   - `_meta = null` is stripped while attaching a `meta = null`
-#   - a nested `_meta` is left untouched
-#   - `withMeta` works on a hand-built srctree tree
-#   - missing/non-directory paths are handled
+#   - `_meta` extracted onto `meta`, stripped from `content`
+#   - files without `_meta` pass through, no `meta` attribute added
+#   - `_meta = null` still strips the binding and yields `meta = null`
+#   - nested `_meta` stays untouched
+#   - `withMeta` handles a hand-built srctree tree
+#   - missing and non-directory paths handled
 #
-# Returns the list of failing tests (empty when everything passes), for
-# `pkgs.lib.debug.throwTestFailures` in the test flake.
+# Returns the failing tests (empty when everything passes); the test flake
+# feeds this to `pkgs.lib.debug.throwTestFailures`.
 { lib, pkgs }:
 
 let

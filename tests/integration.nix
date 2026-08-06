@@ -1,15 +1,15 @@
-# Integration tests for metatree-nix: the full pipeline over a realistic
+# End-to-end tests for metatree-nix: the full pipeline over a realistic
 # nested app tree.
 #
-# Exercises end-to-end behaviour through `load`/`withMeta` + `toAttrs`:
-#   - a nested tree with files that both carry and omit `_meta`
+# Exercises `load`/`withMeta` + `toAttrs` against:
+#   - files that both carry and omit `_meta`
 #   - cross-module `import` resolving against the stripped copy, so `_meta`
-#     never leaks into a sibling module
-#   - `let`-wrapped and function-style modules
+#     never leaks into a sibling
+#   - let-wrapped and function-style modules
 #   - the haumea-style attribute view over the enriched tree
 #
-# Returns the list of failing tests (empty when everything passes), for
-# `pkgs.lib.debug.throwTestFailures` in the test flake.
+# Returns the failing tests (empty when everything passes); the test flake
+# feeds this to `pkgs.lib.debug.throwTestFailures`.
 { lib, pkgs }:
 
 let

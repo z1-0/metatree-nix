@@ -57,8 +57,8 @@ let
         assert substring 0 (stringLength s + 1) p == s + "/";
         substring (stringLength s) (stringLength p - stringLength s) p;
 
-      # `newSrc` is only reached when `metas != []`, which implies
-      # `leaves != []`, so the zip never sees an empty list.
+      # Reached only when `metas != []`, which implies `leaves != []`, so the
+      # zip below gets pairs for every leaf.
       newSrc = rewriteSrc pkgs src
         (pkgs.lib.zipListsWith (leaf: newFile: {
           inherit newFile;
