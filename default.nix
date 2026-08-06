@@ -1,24 +1,22 @@
 { nix-meta, srctree, ... }:
 
 let
-  inherit (builtins) concatStringsSep elemAt filter foldl' stringLength substring;
+  inherit (builtins) concatStringsSep filter foldl' stringLength substring;
   inherit (nix-meta.lib) get parse remove render;
-  inherit (srctree.lib) alg toAttrs;
-
-  mapOption = f: tree: if tree == null then null else f tree;
+  inherit (srctree.lib) alg;
 
   # `remove` catches `_meta = null;` that `get` misses.
-  metaLeaves = pkgs: tree:
+  metaChanges = pkgs: tree:
     let
       leaves = alg.leaves tree;
       asts = parse pkgs (map (n: n.path) leaves);
     in
-    filter (x: x != null) (pkgs.lib.imap0 (i: ast:
+    filter (x: x != null) (pkgs.lib.zipListsWith (leaf: ast:
       let
         removed = remove ast;
       in
-      if removed != ast then { path = (elemAt leaves i).path; inherit ast removed; } else null
-    ) asts);
+      if removed != ast then { path = leaf.path; inherit ast removed; } else null
+    ) leaves asts);
 
   # parse/render error on [].
   ifNonEmpty = f: xs: if xs == [] then [] else f xs;
@@ -39,12 +37,12 @@ let
     let
       # IFD boundary: all derivation-driven work happens here; the rest is
       # a pure rewrite over the produced artifacts.
-      leaves = metaLeaves pkgs tree;
+      leaves = metaChanges pkgs tree;
 
-      metas = pkgs.lib.imap0 (idx: m: {
-        path = (elemAt leaves idx).path;
-        meta = m;
-      }) (ifNonEmpty (get pkgs) (map (x: x.ast) leaves));
+      metas = pkgs.lib.zipListsWith (leaf: meta: {
+        path = leaf.path;
+        inherit meta;
+      }) leaves (ifNonEmpty (get pkgs) (map (x: x.ast) leaves));
 
       newFiles = ifNonEmpty (render pkgs) (map (x: x.removed) leaves);
 
@@ -59,30 +57,25 @@ let
         assert substring 0 (stringLength s + 1) p == s + "/";
         substring (stringLength s) (stringLength p - stringLength s) p;
 
-      newSrc = if leaves == [] then null else rewriteSrc pkgs src
-        (pkgs.lib.imap0 (idx: m: {
-          newFile = elemAt newFiles idx;
-          rel = relPath (elemAt leaves idx).path;
-        }) leaves);
+      # `newSrc` is only reached when `metas != []`, which implies
+      # `leaves != []`, so the zip never sees an empty list.
+      newSrc = rewriteSrc pkgs src
+        (pkgs.lib.zipListsWith (leaf: newFile: {
+          inherit newFile;
+          rel = relPath leaf.path;
+        }) leaves newFiles);
     in
     # No `_meta` anywhere: keep the tree untouched.
     if metas == [] then tree
     # All files import from newSrc: relative imports must resolve against the
     # stripped files, or `_meta` leaks through.
-    else alg.map (node:
-      if node.type != "file" then node
-      else node // { content = import "${newSrc}${relPath node.path}"; } // findMeta node.path metas
+    else alg.mapLeaves (node:
+      node // { content = import "${newSrc}${relPath node.path}"; } // findMeta node.path metas
     ) tree;
 in
 
 srctree.lib // {
   inherit withMeta;
 
-  load = pkgs: src: mapOption (withMeta pkgs) (srctree.lib.load src);
-
-  loadHaumea = pkgs: args:
-    let
-      tree = mapOption (withMeta pkgs) (srctree.lib.loadHaumea args).tree;
-    in
-    { inherit tree; attrs = mapOption toAttrs tree; };
+  load = pkgs: src: pkgs.lib.mapNullable (withMeta pkgs) (srctree.lib.load src);
 }
