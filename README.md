@@ -1,22 +1,17 @@
 # metatree-nix
 
-Add AST-extracted metadata from `.nix` module files to a [srctree](https://github.com/z1-0/srctree-nix) filesystem tree using [nix-meta](https://github.com/z1-0/nix-meta).
+**Metadata lifted into the tree.**
 
-Embed metadata (descriptions, author info, version numbers) in your Nix modules without affecting the evaluated configuration. metatree-nix strips `_meta` before evaluation.
+This library combines two others:
 
-## How it works
+- [nix-meta](https://github.com/z1-0/nix-meta): parses `.nix` files at the AST level, extracts the top-level `_meta` value, and strips it before evaluation.
+- [srctree-nix](https://github.com/z1-0/srctree-nix): loads a directory into a filesystem tree, evaluating each file lazily.
 
-1. `nix-meta` parses `.nix` files at the AST level and extracts the top-level `_meta` attribute set.
-2. `nix-meta` removes `_meta` from each AST and renders the modified AST to temporary files.
-3. `srctree` evaluates the stripped files.
-4. metatree-nix merges the evaluated content and the extracted metadata into the final tree.
+Use `load` to turn a directory into a tree. Every file node carries its evaluated `content` plus the extracted `_meta` as `meta`. Files are re-imported from a copy with `_meta` removed, so the metadata never reaches the evaluator: the module can't see it, imports can't pick it up, and strict modules behave as they always do.
 
-> [!NOTE]
-> Because stripping happens before evaluation, modules never see `_meta`. Strict modules then evaluate without type errors or warnings.
+## Quick start
 
-## Installation
-
-Add `metatree-nix` to your `flake.nix` inputs:
+Add `metatree` to your `flake.nix` inputs:
 
 ```nix
 {
@@ -28,11 +23,9 @@ Add `metatree-nix` to your `flake.nix` inputs:
 }
 ```
 
-## Usage
+### 1. Declare data
 
-### 1. Declare metadata
-
-Add a top-level `_meta` attribute set to your module files:
+Add a top-level `_meta` attribute set to any module file:
 
 ```nix
 # src/services/web.nix
@@ -45,7 +38,6 @@ Add a top-level `_meta` attribute set to your module files:
 
   port = 8080;
   host = "0.0.0.0";
-  workers = 4;
 }
 ```
 
@@ -54,17 +46,12 @@ Add a top-level `_meta` attribute set to your module files:
 ```nix
 let
   pkgs = import nixpkgs { system = "x86_64-linux"; };
-  metatree = metatree.lib.load pkgs ./src;
+  tree = metatree.lib.load pkgs ./src;
 in
-  metatree
+  tree
 ```
 
-### 3. Tree vs attributes
-
-- `load` returns the enriched tree structure directly.
-- Combine `load` with `toAttrs` (exposed from `srctree.lib`) for haumea-style attribute access.
-
-#### File node
+Each file node exposes its `content` (as evaluated) and its `meta` (as written):
 
 ```nix
 {
@@ -74,7 +61,6 @@ in
   content = {
     port = 8080;
     host = "0.0.0.0";
-    workers = 4;
   };
   meta = {
     description = "Web server service module";
@@ -84,25 +70,29 @@ in
 }
 ```
 
+### 3. Browse it as attributes
+
+Combine `load` with `toAttrs` (exposed through `metatree.lib`) for haumea-style attribute access:
+
 ```nix
 let
   attrs = metatree.lib.toAttrs (metatree.lib.load pkgs ./src);
 in
-  attrs.services.web.meta.description
+  attrs.services.web.meta.version
 ```
 
 > [!TIP]
-> `toAttrs` gives haumea-style attribute access over the enriched tree. Use `load` for direct tree access.
+> Files without `_meta` keep their content and gain no `meta` attribute. `load` returns `null` for a missing directory, so optional trees need no special handling.
 
 ## API
 
 ### load
 
 ```
-load :: pkgs -> src -> tree
+load :: pkgs -> src -> tree | null
 ```
 
-Load a directory with `srctree`, extract `_meta` from Nix files, strip it, evaluate, and return the enriched tree.
+Load a directory as a `srctree`, read each file's `_meta` out of the AST, then strip it and evaluate, returning the enriched tree. Returns `null` when `src` doesn't exist.
 
 - `pkgs`: package set for running the parser/renderer utilities.
 - `src`: source directory to load.
@@ -113,7 +103,7 @@ Load a directory with `srctree`, extract `_meta` from Nix files, strip it, evalu
 withMeta :: pkgs -> tree -> tree
 ```
 
-Enrich an already loaded `srctree` tree with AST-extracted `_meta` attributes.
+Enrich an already loaded `srctree` tree with AST-extracted `_meta` attributes. Use it when the tree was built by hand or does not go through `load`.
 
 - `pkgs`: package set for running the parser/renderer utilities.
 - `tree`: srctree tree structure to enrich.
